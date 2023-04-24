@@ -404,6 +404,8 @@ def showGameOverScreen(crashInfo):
     generation += 1
     if generation % 6 == 0:
         save_models()
+    elif generation % 6 == 1:
+        return
     print(models_score)
 
     best_models = []
