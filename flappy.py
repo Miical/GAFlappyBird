@@ -54,32 +54,45 @@ PIPES_LIST = (
 
 models_pool = []
 models_number = 12
+models_score = []
+generation = 0
+load_models = True
 
 def init_models():
     for i in range(models_number):
         model = Sequential([
-            Dense(2, activation="sigmoid", name="layer1"),
             Dense(7, activation="sigmoid", name="layer2"),
             Dense(1, activation="sigmoid", name="layer3"),
         ])
+        model(np.array([[0, 0, 0]]))
         models_pool.append(model)
+    if load_models:
+        for i in range(models_number):
+            models_pool[i].load_weights("models/model" + str(i) + ".keras")
 
+def save_models():
+    for i in range(models_number):
+        models_pool[i].save_weights("models/model" + str(i) + ".keras")
 
-def model_mutate(model):
-    weights = model.get_weights()
-    for xi in range(len(weights)):
-        for yi in range(len(weights[xi])):
+def model_mutate(weights):
+    new_weights = weights[:]
+    for xi in range(len(new_weights)):
+        for yi in range(len(new_weights[xi])):
             if random.uniform(0, 1) > 0.5:
                 change = random.uniform(-0.3,0.3)
-                weights[xi][yi] += change
-    model.set_weights(weights)
+                new_weights[xi][yi] += change
+    return new_weights
 
+def model_crossover(weights1, weights2):
+    weightsnew1 = weights1[:]
+    weightsnew2 = weights2[:]
+    weightsnew1[0] = weights2[0]
+    weightsnew2[0] = weights1[0]
+    return [weightsnew1, weightsnew2]
 
-def predict(model, delta_x, delta_y):
-    inputs = np.array([[delta_x, delta_y]])
+def predict(model, delta_x, delta_y, delta_y2):
+    inputs = np.array([[delta_x, delta_y, delta_y2]])
     outputs = model(inputs)
-
-    print (outputs)
 
     if outputs <= 0.5:
         return True
@@ -163,8 +176,10 @@ def main():
         )
 
         movementInfo = showWelcomeAnimation()
-        crashInfo = mainGame(movementInfo)
-        showGameOverScreen(crashInfo)
+
+        while True:
+            crashInfo = mainGame(movementInfo)
+            showGameOverScreen(crashInfo)
 
 
 def showWelcomeAnimation():
@@ -221,6 +236,8 @@ def showWelcomeAnimation():
 
 
 def mainGame(movementInfo):
+    global models_score
+
     score = [0] * models_number
     loopIter = [0] * models_number
     playerIndex = [0] * models_number
@@ -262,34 +279,37 @@ def mainGame(movementInfo):
     dt = FPSCLOCK.tick(FPS)/1000
     pipeVelX = -128 * dt
 
-    player_score = [-1] * models_number
+    models_score = [-1] * models_number
     last_player = None
+    iter_num = 0
 
     while True:
+        iter_num += 1
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
 
         for i in range(models_number):
-            if player_score[i] != -1:
+            if models_score[i] != -1:
                 continue
             delta_x = lowerPipes[0]['x'] - playerx[i]
             delta_y = lowerPipes[0]['y'] - playery[i] - PIPEGAPSIZE / 2
-            if delta_x <= 0:
+            delta_y2 = lowerPipes[1]['y'] - playery[i] - PIPEGAPSIZE / 2
+            if delta_x <= -IMAGES['pipe'][0].get_width() / 2 and len(lowerPipes) > 2:
                 delta_x = lowerPipes[1]['x'] - playerx[i]
                 delta_y = lowerPipes[1]['y'] - playery[i] - PIPEGAPSIZE / 2
-            if predict(models_pool[i], delta_x, delta_y):
+                delta_y2 = lowerPipes[2]['y'] - playery[i] - PIPEGAPSIZE / 2
+            if predict(models_pool[i], delta_x, delta_y, delta_y2):
                 if playery[i] > -2 * IMAGES['player'][0].get_height():
                     playerVelY[i] = playerFlapAcc[i]
                     playerFlapped[i] = True
-            model_mutate(models_pool[i])
 
             # check for crash here
             crashTest[i] = checkCrash({'x': playerx[i], 'y': playery[i], 'index': playerIndex[i]},
                                 upperPipes, lowerPipes)
             if crashTest[i][0]:
-                player_score[i] = score[i]
+                models_score[i] = iter_num
                 continue
 
             # check for score
@@ -326,8 +346,9 @@ def mainGame(movementInfo):
             uPipe['x'] += pipeVelX
             lPipe['x'] += pipeVelX
 
+        # print(upperPipes)
         # add new pipe when first pipe is about to touch left of screen
-        if 3 > len(upperPipes) > 0 and 0 < upperPipes[0]['x'] < 5:
+        if 3 > len(upperPipes) > 0 and upperPipes[0]['x'] < 5:
             newPipe = getRandomPipe()
             upperPipes.append(newPipe[0])
             lowerPipes.append(newPipe[1])
@@ -351,7 +372,7 @@ def mainGame(movementInfo):
 
         game_over = True
         for i in range(models_number):
-            if player_score[i] != -1:
+            if models_score[i] != -1:
                 continue
             # Player rotation has a threshold
             visibleRot = playerRotThr[i]
@@ -379,65 +400,37 @@ def mainGame(movementInfo):
 
 def showGameOverScreen(crashInfo):
     """crashes the player down and shows gameover image"""
-    score = crashInfo['score']
-    playerx = SCREENWIDTH * 0.2
-    playery = crashInfo['y']
-    playerHeight = IMAGES['player'][0].get_height()
-    playerVelY = crashInfo['playerVelY']
-    playerAccY = 2
-    playerRot = crashInfo['playerRot']
-    playerVelRot = 7
+    global models_pool, models_number, models_score, generation
+    generation += 1
+    if generation % 6 == 0:
+        save_models()
+    print(models_score)
 
-    basex = crashInfo['basex']
+    best_models = []
+    for i in range(4):
+        best_score, best_id = -1, None
+        for id in range(models_number):
+            if models_score[id] > best_score:
+                best_score, best_id = models_score[id], id
+        models_score[best_id] = -1
+        best_models.append(models_pool[best_id])
 
-    upperPipes, lowerPipes = crashInfo['upperPipes'], crashInfo['lowerPipes']
+    weights1 = best_models[0].get_weights()
+    weights2 = best_models[1].get_weights()
 
-    # play hit and die sounds
-    SOUNDS['hit'].play()
-    if not crashInfo['groundCrash']:
-        SOUNDS['die'].play()
+    models_pool[0].set_weights(weights1)
+    models_pool[2].set_weights(model_mutate(weights1))
+    models_pool[3].set_weights(model_mutate(weights1))
+    models_pool[1].set_weights(model_mutate(weights2))
 
-    while True:
-        for event in pygame.event.get():
-            if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
-                pygame.quit()
-                sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-                if playery + playerHeight >= BASEY - 1:
-                    return
-
-        # player y shift
-        if playery + playerHeight < BASEY - 1:
-            playery += min(playerVelY, BASEY - playery - playerHeight)
-
-        # player velocity change
-        if playerVelY < 15:
-            playerVelY += playerAccY
-
-        # rotate only when it's a pipe crash
-        if not crashInfo['groundCrash']:
-            if playerRot > -90:
-                playerRot -= playerVelRot
-
-        # draw sprites
-        SCREEN.blit(IMAGES['background'], (0,0))
-
-        for uPipe, lPipe in zip(upperPipes, lowerPipes):
-            SCREEN.blit(IMAGES['pipe'][0], (uPipe['x'], uPipe['y']))
-            SCREEN.blit(IMAGES['pipe'][1], (lPipe['x'], lPipe['y']))
-
-        SCREEN.blit(IMAGES['base'], (basex, BASEY))
-        showScore(score)
-
-
-
-
-        playerSurface = pygame.transform.rotate(IMAGES['player'][1], playerRot)
-        SCREEN.blit(playerSurface, (playerx,playery))
-        SCREEN.blit(IMAGES['gameover'], (50, 180))
-
-        FPSCLOCK.tick(FPS)
-        pygame.display.update()
+    for select in range(2):
+        weights3 = best_models[2 + select].get_weights()
+        new_weights1 = model_crossover(weights1, weights3)
+        new_weights2 = model_crossover(weights2, weights3)
+        models_pool[select * 4 + 4].set_weights(model_mutate(new_weights1[0]))
+        models_pool[select * 4 + 5].set_weights(model_mutate(new_weights1[1]))
+        models_pool[select * 4 + 6].set_weights(model_mutate(new_weights2[0]))
+        models_pool[select * 4 + 7].set_weights(model_mutate(new_weights2[1]))
 
 
 def playerShm(playerShm):
