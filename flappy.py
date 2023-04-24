@@ -221,9 +221,24 @@ def showWelcomeAnimation():
 
 
 def mainGame(movementInfo):
-    score = playerIndex = loopIter = 0
-    playerIndexGen = movementInfo['playerIndexGen']
-    playerx, playery = int(SCREENWIDTH * 0.2), movementInfo['playery']
+    score = [0] * models_number
+    loopIter = [0] * models_number
+    playerIndex = [0] * models_number
+    playerIndexGen = [movementInfo['playerIndexGen']] * models_number
+    playerx = [int(SCREENWIDTH * 0.2)] * models_number
+    playery = [movementInfo['playery']] * models_number
+    crashTest = [False] * models_number
+
+    # player velocity, max velocity, downward acceleration, acceleration on flap
+    playerVelY    =  [-9] * models_number   # player's velocity along Y, default same as playerFlapped
+    playerMaxVelY =  [10] * models_number   # max vel along Y, max descend speed
+    playerMinVelY =  [-8] * models_number   # min vel along Y, max ascend speed
+    playerAccY    =   [1] * models_number   # players downward acceleration
+    playerRot     =  [45] * models_number   # player's rotation
+    playerVelRot  =   [3] * models_number   # angular speed
+    playerRotThr  =  [20] * models_number   # rotation threshold
+    playerFlapAcc =  [-9] * models_number   # players speed on flapping
+    playerFlapped = [False] * models_number # True when player flaps
 
     basex = movementInfo['basex']
     baseShift = IMAGES['base'].get_width() - IMAGES['background'].get_width()
@@ -247,84 +262,64 @@ def mainGame(movementInfo):
     dt = FPSCLOCK.tick(FPS)/1000
     pipeVelX = -128 * dt
 
-    # player velocity, max velocity, downward acceleration, acceleration on flap
-    playerVelY    =  -9   # player's velocity along Y, default same as playerFlapped
-    playerMaxVelY =  10   # max vel along Y, max descend speed
-    playerMinVelY =  -8   # min vel along Y, max ascend speed
-    playerAccY    =   1   # players downward acceleration
-    playerRot     =  45   # player's rotation
-    playerVelRot  =   3   # angular speed
-    playerRotThr  =  20   # rotation threshold
-    playerFlapAcc =  -9   # players speed on flapping
-    playerFlapped = False # True when player flaps
-
+    player_score = [-1] * models_number
+    last_player = None
 
     while True:
-        delta_x = lowerPipes[0]['x'] - playerx
-        delta_y = lowerPipes[0]['y'] - playery - PIPEGAPSIZE / 2
-        if delta_x <= 0:
-            delta_x = lowerPipes[1]['x'] - playerx
-            delta_y = lowerPipes[1]['y'] - playery - PIPEGAPSIZE / 2
-        if predict(models_pool[0], delta_x, delta_y):
-            if playery > -2 * IMAGES['player'][0].get_height():
-                playerVelY = playerFlapAcc
-                playerFlapped = True
-        model_mutate(models_pool[0])
-
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
-            # if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-            #    if playery > -2 * IMAGES['player'][0].get_height():
-            #        playerVelY = playerFlapAcc
-            #        playerFlapped = True
-            #        SOUNDS['wing'].play()
 
-        # check for crash here
-        crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex},
-                               upperPipes, lowerPipes)
-        if crashTest[0]:
-            return {
-                'y': playery,
-                'groundCrash': crashTest[1],
-                'basex': basex,
-                'upperPipes': upperPipes,
-                'lowerPipes': lowerPipes,
-                'score': score,
-                'playerVelY': playerVelY,
-                'playerRot': playerRot
-            }
+        for i in range(models_number):
+            if player_score[i] != -1:
+                continue
+            delta_x = lowerPipes[0]['x'] - playerx[i]
+            delta_y = lowerPipes[0]['y'] - playery[i] - PIPEGAPSIZE / 2
+            if delta_x <= 0:
+                delta_x = lowerPipes[1]['x'] - playerx[i]
+                delta_y = lowerPipes[1]['y'] - playery[i] - PIPEGAPSIZE / 2
+            if predict(models_pool[i], delta_x, delta_y):
+                if playery[i] > -2 * IMAGES['player'][0].get_height():
+                    playerVelY[i] = playerFlapAcc[i]
+                    playerFlapped[i] = True
+            model_mutate(models_pool[i])
 
-        # check for score
-        playerMidPos = playerx + IMAGES['player'][0].get_width() / 2
-        for pipe in upperPipes:
-            pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
-            if pipeMidPos <= playerMidPos < pipeMidPos + 4:
-                score += 1
-                SOUNDS['point'].play()
+            # check for crash here
+            crashTest[i] = checkCrash({'x': playerx[i], 'y': playery[i], 'index': playerIndex[i]},
+                                upperPipes, lowerPipes)
+            if crashTest[i][0]:
+                player_score[i] = score[i]
+                continue
 
-        # playerIndex basex change
-        if (loopIter + 1) % 3 == 0:
-            playerIndex = next(playerIndexGen)
-        loopIter = (loopIter + 1) % 30
-        basex = -((-basex + 100) % baseShift)
+            # check for score
+            playerMidPos = playerx[i] + IMAGES['player'][0].get_width() / 2
+            for pipe in upperPipes:
+                pipeMidPos = pipe['x'] + IMAGES['pipe'][0].get_width() / 2
+                if pipeMidPos <= playerMidPos < pipeMidPos + 4:
+                    score[i] += 1
 
-        # rotate the player
-        if playerRot > -90:
-            playerRot -= playerVelRot
+            # playerIndex basex change
+            if (loopIter[i] + 1) % 3 == 0:
+                playerIndex[i] = next(playerIndexGen[i])
+            loopIter[i] = (loopIter[i] + 1) % 30
 
-        # player's movement
-        if playerVelY < playerMaxVelY and not playerFlapped:
-            playerVelY += playerAccY
-        if playerFlapped:
-            playerFlapped = False
 
-            # more rotation to cover the threshold (calculated in visible rotation)
-            playerRot = 45
+            # rotate the player
+            if playerRot[i] > -90:
+                playerRot[i] -= playerVelRot[i]
 
-        playerHeight = IMAGES['player'][playerIndex].get_height()
-        playery += min(playerVelY, BASEY - playery - playerHeight)
+            # player's movement
+            if playerVelY[i] < playerMaxVelY[i] and not playerFlapped[i]:
+                playerVelY[i] += playerAccY[i]
+            if playerFlapped[i]:
+                playerFlapped[i] = False
+
+                # more rotation to cover the threshold (calculated in visible rotation)
+                playerRot[i] = 45
+
+            playerHeight = IMAGES['player'][playerIndex[i]].get_height()
+            playery[i] += min(playerVelY[i], BASEY - playery[i] - playerHeight)
 
         # move pipes to left
         for uPipe, lPipe in zip(upperPipes, lowerPipes):
@@ -349,21 +344,38 @@ def mainGame(movementInfo):
             SCREEN.blit(IMAGES['pipe'][0], (uPipe['x'], uPipe['y']))
             SCREEN.blit(IMAGES['pipe'][1], (lPipe['x'], lPipe['y']))
 
+        basex = -((-basex + 100) % baseShift)
         SCREEN.blit(IMAGES['base'], (basex, BASEY))
         # print score so player overlaps the score
-        showScore(score)
+        showScore(max(score))
 
-        # Player rotation has a threshold
-        visibleRot = playerRotThr
-        if playerRot <= playerRotThr:
-            visibleRot = playerRot
+        game_over = True
+        for i in range(models_number):
+            if player_score[i] != -1:
+                continue
+            # Player rotation has a threshold
+            visibleRot = playerRotThr[i]
+            if playerRot[i] <= playerRotThr[i]:
+                visibleRot = playerRot[i]
 
-        playerSurface = pygame.transform.rotate(IMAGES['player'][playerIndex], visibleRot)
-        SCREEN.blit(playerSurface, (playerx, playery))
+            game_over = False
+            last_player = i
+            playerSurface = pygame.transform.rotate(IMAGES['player'][playerIndex[i]], visibleRot)
+            SCREEN.blit(playerSurface, (playerx[i], playery[i]))
 
         pygame.display.update()
         FPSCLOCK.tick(FPS)
-
+        if game_over:
+            return {
+                'y': playery[last_player],
+                'groundCrash': crashTest[last_player][1],
+                'basex': basex,
+                'upperPipes': upperPipes,
+                'lowerPipes': lowerPipes,
+                'score': score[last_player],
+                'playerVelY': playerVelY[last_player],
+                'playerRot': playerRot[last_player]
+            }
 
 def showGameOverScreen(crashInfo):
     """crashes the player down and shows gameover image"""
