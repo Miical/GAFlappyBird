@@ -4,6 +4,12 @@ import sys
 import pygame
 from pygame.locals import *
 
+import numpy as np
+
+from keras.models import Sequential
+from keras.layers import Dense, Activation
+from keras.optimizers import SGD
+
 FPS = 30
 SCREENWIDTH  = 288
 SCREENHEIGHT = 512
@@ -46,11 +52,38 @@ PIPES_LIST = (
     'assets/sprites/pipe-red.png',
 )
 
+models_pool = []
+models_number = 12
 
-try:
-    xrange
-except NameError:
-    xrange = range
+def init_models():
+    for i in range(models_number):
+        model = Sequential([
+            Dense(2, activation="sigmoid", name="layer1"),
+            Dense(7, activation="sigmoid", name="layer2"),
+            Dense(1, activation="sigmoid", name="layer3"),
+        ])
+        models_pool.append(model)
+
+
+def model_mutate(model):
+    weights = model.get_weights()
+    for xi in range(len(weights)):
+        for yi in range(len(weights[xi])):
+            if random.uniform(0, 1) > 0.5:
+                change = random.uniform(-0.3,0.3)
+                weights[xi][yi] += change
+    model.set_weights(weights)
+
+
+def predict(model, delta_x, delta_y):
+    inputs = np.array([[delta_x, delta_y]])
+    outputs = model(inputs)
+
+    print (outputs)
+
+    if outputs <= 0.5:
+        return True
+    return False
 
 
 def main():
@@ -59,6 +92,8 @@ def main():
     FPSCLOCK = pygame.time.Clock()
     SCREEN = pygame.display.set_mode((SCREENWIDTH, SCREENHEIGHT))
     pygame.display.set_caption('Flappy Bird')
+
+    init_models()
 
     # numbers sprites for score display
     IMAGES['numbers'] = (
@@ -225,15 +260,26 @@ def mainGame(movementInfo):
 
 
     while True:
+        delta_x = lowerPipes[0]['x'] - playerx
+        delta_y = lowerPipes[0]['y'] - playery - PIPEGAPSIZE / 2
+        if delta_x <= 0:
+            delta_x = lowerPipes[1]['x'] - playerx
+            delta_y = lowerPipes[1]['y'] - playery - PIPEGAPSIZE / 2
+        if predict(models_pool[0], delta_x, delta_y):
+            if playery > -2 * IMAGES['player'][0].get_height():
+                playerVelY = playerFlapAcc
+                playerFlapped = True
+        model_mutate(models_pool[0])
+
         for event in pygame.event.get():
             if event.type == QUIT or (event.type == KEYDOWN and event.key == K_ESCAPE):
                 pygame.quit()
                 sys.exit()
-            if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
-                if playery > -2 * IMAGES['player'][0].get_height():
-                    playerVelY = playerFlapAcc
-                    playerFlapped = True
-                    SOUNDS['wing'].play()
+            # if event.type == KEYDOWN and (event.key == K_SPACE or event.key == K_UP):
+            #    if playery > -2 * IMAGES['player'][0].get_height():
+            #        playerVelY = playerFlapAcc
+            #        playerFlapped = True
+            #        SOUNDS['wing'].play()
 
         # check for crash here
         crashTest = checkCrash({'x': playerx, 'y': playery, 'index': playerIndex},
@@ -311,7 +357,7 @@ def mainGame(movementInfo):
         visibleRot = playerRotThr
         if playerRot <= playerRotThr:
             visibleRot = playerRot
-        
+
         playerSurface = pygame.transform.rotate(IMAGES['player'][playerIndex], visibleRot)
         SCREEN.blit(playerSurface, (playerx, playery))
 
@@ -371,7 +417,7 @@ def showGameOverScreen(crashInfo):
         SCREEN.blit(IMAGES['base'], (basex, BASEY))
         showScore(score)
 
-        
+
 
 
         playerSurface = pygame.transform.rotate(IMAGES['player'][1], playerRot)
@@ -467,8 +513,8 @@ def pixelCollision(rect1, rect2, hitmask1, hitmask2):
     x1, y1 = rect.x - rect1.x, rect.y - rect1.y
     x2, y2 = rect.x - rect2.x, rect.y - rect2.y
 
-    for x in xrange(rect.width):
-        for y in xrange(rect.height):
+    for x in range(rect.width):
+        for y in range(rect.height):
             if hitmask1[x1+x][y1+y] and hitmask2[x2+x][y2+y]:
                 return True
     return False
@@ -476,9 +522,9 @@ def pixelCollision(rect1, rect2, hitmask1, hitmask2):
 def getHitmask(image):
     """returns a hitmask using an image's alpha."""
     mask = []
-    for x in xrange(image.get_width()):
+    for x in range(image.get_width()):
         mask.append([])
-        for y in xrange(image.get_height()):
+        for y in range(image.get_height()):
             mask[x].append(bool(image.get_at((x,y))[3]))
     return mask
 
